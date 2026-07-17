@@ -1,0 +1,18 @@
+node_modules/
+dist/
+
+# Web prototype (Vite/React)
+index.html
+package.json
+package-lock.json
+vite.config.js
+src/
+public/
+
+# Expo / RN
+rn-shelf/node_modules/
+rn-shelf/.expo/
+
+# OS
+.DS_Store
+
