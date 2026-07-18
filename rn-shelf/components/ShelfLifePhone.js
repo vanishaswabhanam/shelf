@@ -44,8 +44,8 @@ const COVER_W = 86
 const COVER_H = 132
 const GAP = 13
 
-const BOOKS_KEY = '@shelf_books_v2'
-const COVERS_KEY = '@shelf_covers_v2'
+const BOOKS_KEY = '@shelf_books_v3'
+const COVERS_KEY = '@shelf_covers_v3'
 
 const CATS = [
   { key: 'favorites', name: 'favorites' },
@@ -56,14 +56,9 @@ const CATS = [
 
 const SEED = [
   { id: 'b1', cat: 'favorites', title: 'The Stranger', author: 'Albert Camus', genre: 'Fiction', rating: 5, status: 'finished', coverColor: '#8E2B20', coverText: '#F2E7D8', note: '“Mother died today. Or maybe yesterday.” A book that taught me how much you can say by saying almost nothing.' },
-  { id: 'b2', cat: 'favorites', title: 'Bluets', author: 'Maggie Nelson', genre: 'Essays', rating: 4, status: 'finished', coverColor: '#28508C', coverText: '#EAF0F7', note: '240 small blue stones, held up to the light one at a time. I keep coming back to it.' },
-  { id: 'b3', cat: 'favorites', title: 'Just Kids', author: 'Patti Smith', genre: 'Memoir', rating: 5, status: 'reading', coverColor: '#161616', coverText: '#EDE7DA', note: 'The tenderest portrait of two kids becoming artists in a city that no longer exists.' },
   { id: 'b4', cat: 'everything', title: 'Crying in H Mart', author: 'Michelle Zauner', genre: 'Memoir', rating: 4, status: 'finished', coverColor: '#B5341F', coverText: '#F4E9DB', note: 'Grief, kimchi, and the particular ache of a mother’s recipes.' },
   { id: 'b5', cat: 'reading', title: 'Pachinko', author: 'Min Jin Lee', genre: 'Fiction', rating: 5, status: 'reading', coverColor: '#34406B', coverText: '#E9ECF4', note: '“History has failed us, but no matter.” I read the last hundred pages in one sitting.' },
-  { id: 'b6', cat: 'everything', title: 'The Argonauts', author: 'Maggie Nelson', genre: 'Essays', rating: 4, status: 'finished', coverColor: '#D9772E', coverText: '#211405', note: 'On love, language, and bodies that refuse to be one thing.' },
   { id: 'b7', cat: 'wishlist', title: 'Trust', author: 'Hernan Diaz', genre: 'Fiction', rating: 0, status: 'to-read', coverColor: '#243B2E', coverText: '#E6EDE6', note: '' },
-  { id: 'b8', cat: 'wishlist', title: 'The Dawn of Everything', author: 'Graeber & Wengrow', genre: 'History', rating: 0, status: 'to-read', coverColor: '#C99A2E', coverText: '#1C1505', note: '' },
-  { id: 'b9', cat: 'wishlist', title: 'Severance', author: 'Ling Ma', genre: 'Fiction', rating: 0, status: 'to-read', coverColor: '#2E2A4A', coverText: '#E8E5F0', note: '' },
 ]
 
 const PALETTE = [
@@ -172,9 +167,12 @@ export default function ShelfLifePhone() {
   const [noteDraft, setNoteDraft] = useState('')
   const [editingAuthorId, setEditingAuthorId] = useState(null)
   const [authorDraft, setAuthorDraft] = useState('')
+  const [editingTitleId, setEditingTitleId] = useState(null)
+  const [titleDraft, setTitleDraft] = useState('')
   const [coverMenuOpen, setCoverMenuOpen] = useState(false)
   const [coverMenuHasImage, setCoverMenuHasImage] = useState(false)
   const [toast, setToast] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Add modal
   const [addOpen, setAddOpen] = useState(false)
@@ -204,6 +202,7 @@ export default function ShelfLifePhone() {
   const rowRefs = useRef({})
   const layouts = useRef({ books: {}, rows: {} })
   const uploadTarget = useRef('book')
+  const suppressOpenRef = useRef(false)
 
   // ---- persistence -------------------------------------------------------
   useEffect(() => {
@@ -255,18 +254,22 @@ export default function ShelfLifePhone() {
 
   // ---- popup actions -----------------------------------------------------
   const open = (id) => {
-    if (dragActiveRef.current) return
+    if (dragActiveRef.current || suppressOpenRef.current) return
     setOpenId(id)
     setMoveOpen(false)
     setNoteEditId(null)
     setEditingAuthorId(null)
+    setEditingTitleId(null)
+    setConfirmDelete(false)
   }
   const close = () => {
     setOpenId(null)
     setMoveOpen(false)
     setNoteEditId(null)
     setEditingAuthorId(null)
+    setEditingTitleId(null)
     setCoverMenuOpen(false)
+    setConfirmDelete(false)
   }
   const cycleStatus = () => {
     if (!cur) return
@@ -287,12 +290,13 @@ export default function ShelfLifePhone() {
     showToast(n + ' star' + (n !== 1 ? 's' : ''))
   }
   const share = () => showToast('Link copied to clipboard')
+  const askDelete = () => setConfirmDelete(true)
+  const cancelDelete = () => setConfirmDelete(false)
   const del = () => {
     if (!cur) return
     const id = cur.id
     setBooks((prev) => prev.filter((b) => b.id !== id))
     close()
-    showToast('Removed from shelf')
   }
   const moveTo = (key) => {
     if (!cur) return
@@ -305,6 +309,7 @@ export default function ShelfLifePhone() {
     if (!cur) return
     setMoveOpen(false)
     setNoteEditId(null)
+    setEditingTitleId(null)
     setAuthorDraft(cur.author)
     setEditingAuthorId(cur.id)
   }
@@ -315,10 +320,26 @@ export default function ShelfLifePhone() {
     setEditingAuthorId(null)
   }
 
+  const startTitleEdit = () => {
+    if (!cur) return
+    setMoveOpen(false)
+    setNoteEditId(null)
+    setEditingAuthorId(null)
+    setTitleDraft(cur.title)
+    setEditingTitleId(cur.id)
+  }
+  const saveTitleEdit = () => {
+    if (!cur) { setEditingTitleId(null); return }
+    const t = titleDraft.trim() || cur.title
+    update(cur.id, { title: t })
+    setEditingTitleId(null)
+  }
+
   const startNote = () => {
     if (!cur) return
     setMoveOpen(false)
     setEditingAuthorId(null)
+    setEditingTitleId(null)
     setNoteDraft(cur.note || '')
     setNoteEditId(cur.id)
   }
@@ -536,8 +557,14 @@ export default function ShelfLifePhone() {
   }
 
   const finishDrag = () => {
+    if (!dragActiveRef.current && !dragId) return
     const id = dragId
     dragActiveRef.current = false
+    // swallow the tap that fires on release so we don't auto-open the book
+    if (id) {
+      suppressOpenRef.current = true
+      setTimeout(() => { suppressOpenRef.current = false }, 350)
+    }
     setDragId(null)
     setDragBook(null)
     if (id) {
@@ -615,7 +642,6 @@ export default function ShelfLifePhone() {
               </View>
               <View style={styles.sectionHeaderRight}>
                 <Text style={styles.countLabel}>{cat.countLabel}</Text>
-                <Text style={styles.chevrons}>‹ ›</Text>
               </View>
             </View>
 
@@ -639,7 +665,8 @@ export default function ShelfLifePhone() {
                       delayLongPress={300}
                       onLongPress={() => activateDrag(book)}
                       onPress={() => open(book.id)}
-                      style={[styles.coverShadow, { opacity: isDragging ? 0 : 1 }]}
+                      onPressOut={() => { if (dragActiveRef.current) finishDragRef.current() }}
+                      style={({ pressed }) => [styles.coverShadow, { opacity: isDragging ? 0 : 1, transform: [{ scale: pressed && !isDragging ? 0.96 : 1 }] }]}
                     >
                       <Cover book={book} coverUrl={covers[book.id]} width={COVER_W} height={COVER_H} />
                     </Pressable>
@@ -702,6 +729,11 @@ export default function ShelfLifePhone() {
         setAuthorDraft={setAuthorDraft}
         startAuthorEdit={startAuthorEdit}
         saveAuthorEdit={saveAuthorEdit}
+        editingTitle={editingTitleId === (cur && cur.id)}
+        titleDraft={titleDraft}
+        setTitleDraft={setTitleDraft}
+        startTitleEdit={startTitleEdit}
+        saveTitleEdit={saveTitleEdit}
         noteEditing={noteEditId === (cur && cur.id)}
         noteDraft={noteDraft}
         setNoteDraft={setNoteDraft}
@@ -712,7 +744,10 @@ export default function ShelfLifePhone() {
         cycleStatus={cycleStatus}
         markFinished={markFinished}
         share={share}
-        del={del}
+        askDelete={askDelete}
+        confirmDelete={confirmDelete}
+        confirmDeleteAction={del}
+        cancelDelete={cancelDelete}
         moveTo={moveTo}
         openCoverMenu={openCoverMenu}
         coverMenuOpen={coverMenuOpen}
@@ -760,8 +795,9 @@ function DetailPopup(props) {
   const {
     book, coverUrl, onClose, rust, moveOpen, setMoveOpen,
     editingAuthor, authorDraft, setAuthorDraft, startAuthorEdit, saveAuthorEdit,
+    editingTitle, titleDraft, setTitleDraft, startTitleEdit, saveTitleEdit,
     noteEditing, noteDraft, setNoteDraft, startNote, saveNote, cancelNote,
-    setRating, cycleStatus, markFinished, share, del, moveTo,
+    setRating, cycleStatus, markFinished, share, askDelete, confirmDelete, confirmDeleteAction, cancelDelete, moveTo,
     openCoverMenu, coverMenuOpen, coverMenuHasImage, closeCoverMenu, chooseUpload, choosePaste, replaceCover,
   } = props
 
@@ -769,43 +805,90 @@ function DetailPopup(props) {
   const shelf = book ? catName(book.cat) : ''
   const moveTargets = book ? CATS.filter((c) => c.key !== book.cat) : []
 
+  const anim = useRef(new Animated.Value(0)).current
+  const dragY = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    if (book) {
+      anim.setValue(0)
+      dragY.setValue(0)
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, friction: 8, tension: 70 }).start()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book && book.id])
+
+  const cardScale = anim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] })
+  const backdropOpacity = Animated.multiply(
+    anim,
+    dragY.interpolate({ inputRange: [0, 400], outputRange: [1, 0], extrapolate: 'clamp' })
+  )
+
+  const scrollYRef = useRef(0)
+  const swipe = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (e, g) => scrollYRef.current <= 0 && g.dy > 5 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
+      onPanResponderMove: (e, g) => { if (g.dy > 0) dragY.setValue(g.dy) },
+      onPanResponderRelease: (e, g) => {
+        if (g.dy > 110 || g.vy > 0.7) {
+          Animated.timing(dragY, { toValue: 720, duration: 240, useNativeDriver: true }).start(() => {
+            dragY.setValue(0)
+            onCloseRef.current()
+          })
+        } else {
+          Animated.spring(dragY, { toValue: 0, useNativeDriver: true, friction: 8, tension: 90 }).start()
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(dragY, { toValue: 0, useNativeDriver: true, friction: 8, tension: 90 }).start()
+      },
+    })
+  ).current
+
+  // keep the pan responder's stable closure pointing at the latest onClose
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   return (
     <Modal visible={!!book} transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Animated.View style={{ transform: [{ translateY: dragY }, { scale: cardScale }] }}>
         <Pressable style={styles.card} onPress={() => {}}>
           {book && (
             <>
-              <View style={styles.cardHeader}>
-                <View style={styles.logoMark}>
-                  <View style={styles.logoNotch} />
+              <View {...swipe.panHandlers}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.logoMark}>
+                    <View style={styles.logoNotch} />
+                  </View>
+                  <Pressable onPress={onClose}>
+                    <Text style={styles.closeLabel}>CLOSE</Text>
+                  </Pressable>
                 </View>
-                <Pressable onPress={onClose}>
-                  <Text style={styles.closeLabel}>CLOSE</Text>
-                </Pressable>
-              </View>
-              <ScrollView showsVerticalScrollIndicator={false}>
-                <Pressable style={styles.heroWrap} onPress={openCoverMenu}>
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y }}
+                  scrollEventThrottle={16}
+                >
+                <View style={styles.heroWrap}>
                   <Cover book={book} coverUrl={coverUrl} width={150} height={150 * (COVER_H / COVER_W)} titleSize={26} authorSize={8} pad={[20, 18]} style={styles.heroShadow} />
-                  {coverMenuOpen && (
-                    <Pressable style={styles.coverMenu} onPress={closeCoverMenu}>
-                      <Pressable style={styles.coverPill} onPress={chooseUpload}>
-                        <Text style={styles.coverPillText}>Upload Photo</Text>
-                      </Pressable>
-                      <Pressable
-                        style={[styles.coverPill, { borderColor: coverMenuHasImage ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.25)' }]}
-                        onPress={choosePaste}
-                      >
-                        <Text style={[styles.coverPillText, { color: coverMenuHasImage ? '#fff' : 'rgba(255,255,255,.4)' }]}>
-                          {coverMenuHasImage ? 'Paste Image' : 'No image copied to clipboard'}
-                        </Text>
-                      </Pressable>
-                    </Pressable>
-                  )}
-                </Pressable>
+                </View>
 
                 <View style={styles.cardBody}>
                   <Text style={styles.eyebrow}>{(book.genre || '').toUpperCase()} · {shelf.toUpperCase()}</Text>
-                  <Text style={styles.detailTitle}>{book.title}</Text>
+                  {editingTitle ? (
+                    <TextInput
+                      style={styles.titleEditInput}
+                      value={titleDraft}
+                      onChangeText={setTitleDraft}
+                      onBlur={saveTitleEdit}
+                      autoFocus
+                      multiline
+                    />
+                  ) : (
+                    <Pressable onPress={startTitleEdit}>
+                      <Text style={styles.detailTitle}>{book.title}</Text>
+                    </Pressable>
+                  )}
 
                   <View style={styles.authorRow}>
                     {editingAuthor ? (
@@ -822,9 +905,6 @@ function DetailPopup(props) {
                         <Text style={styles.authorText}>{book.author}</Text>
                       </Pressable>
                     )}
-                    <Pressable style={styles.shareBtn} onPress={share}>
-                      <Text style={styles.shareGlyph}>↗</Text>
-                    </Pressable>
                   </View>
 
                   <View style={styles.cardDivider} />
@@ -851,7 +931,7 @@ function DetailPopup(props) {
                         style={styles.noteInput}
                         value={noteDraft}
                         onChangeText={setNoteDraft}
-                        placeholder="Add a note or a favourite quote…"
+                        placeholder="Add a note or a favorite quote…"
                         placeholderTextColor="#a59f95"
                         multiline
                       />
@@ -867,7 +947,7 @@ function DetailPopup(props) {
                   ) : (
                     <Pressable style={styles.noteQuote} onPress={startNote}>
                       <Text style={[styles.noteText, { color: hasNote ? '#2c2c29' : '#a59f95' }]}>
-                        {hasNote ? book.note : 'Tap to add a note or a favourite quote…'}
+                        {hasNote ? book.note : 'Tap to add a note or a favorite quote…'}
                       </Text>
                     </Pressable>
                   )}
@@ -877,12 +957,26 @@ function DetailPopup(props) {
                   </Pressable>
 
                   <View style={styles.actionsRow}>
-                    <Pressable onPress={startAuthorEdit}><Text style={styles.actionText}>Edit</Text></Pressable>
+                    <Pressable onPress={startTitleEdit}><Text style={styles.actionText}>Edit</Text></Pressable>
                     <Pressable onPress={startNote}><Text style={styles.actionText}>Note</Text></Pressable>
                     <Pressable onPress={() => setMoveOpen((m) => !m)}><Text style={styles.actionText}>Move</Text></Pressable>
                     <Pressable onPress={replaceCover}><Text style={styles.actionText}>Replace cover</Text></Pressable>
-                    <Pressable onPress={del}><Text style={[styles.actionText, { color: C.rust }]}>Delete</Text></Pressable>
+                    <Pressable onPress={askDelete}><Text style={[styles.actionText, { color: C.rust }]}>Delete</Text></Pressable>
                   </View>
+
+                  {confirmDelete && (
+                    <View style={styles.confirmBar}>
+                      <Text style={styles.confirmText}>Delete “{book.title}” from your shelf?</Text>
+                      <View style={styles.confirmActions}>
+                        <Pressable style={styles.confirmDeleteBtn} onPress={confirmDeleteAction}>
+                          <Text style={styles.confirmDeleteText}>Delete</Text>
+                        </Pressable>
+                        <Pressable style={styles.confirmCancelBtn} onPress={cancelDelete}>
+                          <Text style={styles.confirmCancelText}>Cancel</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
 
                   {moveOpen && (
                     <View style={styles.moveList}>
@@ -897,10 +991,12 @@ function DetailPopup(props) {
                   )}
                 </View>
               </ScrollView>
+              </View>
             </>
           )}
         </Pressable>
-      </Pressable>
+        </Animated.View>
+      </Animated.View>
     </Modal>
   )
 }
@@ -1024,10 +1120,10 @@ function AddModal(props) {
 const styles = StyleSheet.create({
   stage: { flex: 1, backgroundColor: C.cream },
   screen: { flex: 1 },
-  scrollContent: { paddingTop: 96, paddingLeft: 30, paddingRight: 16, paddingBottom: 200 },
+  scrollContent: { paddingTop: 62, paddingLeft: 30, paddingRight: 16, paddingBottom: 200 },
 
   header: { alignItems: 'center', marginBottom: 36 },
-  wordmark: { fontFamily: F.serifSemi, fontSize: 26, letterSpacing: -0.5, color: C.ink, lineHeight: 26 },
+  wordmark: { fontFamily: F.serifSemi, fontSize: 42, letterSpacing: -1, color: C.ink, lineHeight: 44 },
   dividerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
   dividerLine: { width: 34, height: 1, backgroundColor: 'rgba(22,22,22,.28)' },
   dividerText: { fontFamily: F.mono, fontSize: 8.5, letterSpacing: 2, color: C.muted, textTransform: 'uppercase', marginHorizontal: 10 },
@@ -1073,6 +1169,7 @@ const styles = StyleSheet.create({
   cardBody: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18 },
   eyebrow: { fontFamily: F.mono, fontSize: 9, letterSpacing: 2.4, color: C.rust, textTransform: 'uppercase' },
   detailTitle: { fontFamily: F.serif, fontSize: 27, lineHeight: 27 * 1.07, color: C.ink, marginTop: 9, letterSpacing: -0.3 },
+  titleEditInput: { fontFamily: F.serif, fontSize: 27, lineHeight: 27 * 1.07, color: C.ink, marginTop: 9, letterSpacing: -0.3, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,.3)', paddingVertical: 2 },
   authorRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 9 },
   authorText: { fontFamily: F.serifItalic, fontSize: 14.5, color: C.ink2 },
   authorInput: { flex: 1, fontFamily: F.serifItalic, fontSize: 14.5, color: C.ink2, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,.3)', paddingVertical: 2, marginRight: 10 },
@@ -1101,6 +1198,14 @@ const styles = StyleSheet.create({
   moveRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 },
   moveName: { fontFamily: F.serif, fontSize: 14, color: C.ink },
   moveArrow: { fontFamily: F.mono, fontSize: 11, color: C.rust },
+
+  confirmBar: { marginTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,.1)', paddingTop: 14, alignItems: 'center' },
+  confirmText: { fontFamily: F.serifItalic, fontSize: 14, color: C.ink, textAlign: 'center', marginBottom: 12 },
+  confirmActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  confirmDeleteBtn: { backgroundColor: C.rust, borderRadius: 6, paddingVertical: 9, paddingHorizontal: 20 },
+  confirmDeleteText: { fontFamily: F.mono, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: '#fff' },
+  confirmCancelBtn: { borderWidth: 1, borderColor: 'rgba(0,0,0,.2)', borderRadius: 6, paddingVertical: 9, paddingHorizontal: 20 },
+  confirmCancelText: { fontFamily: F.mono, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: '#5a5a55' },
 
   // add modal
   addBody: { paddingHorizontal: 17, paddingTop: 2, paddingBottom: 20 },

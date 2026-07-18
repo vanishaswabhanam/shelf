@@ -25,10 +25,19 @@
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "Shelf",
+      "shortName": "Shelf",
+      "themeColor": "#F4F1EA",
+      "backgroundColor": "#F4F1EA",
+      "display": "standalone",
+      "lang": "en"
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "experiments": {
+      "baseUrl": "/shelf"
+    }
   }
 }
