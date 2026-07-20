@@ -140,6 +140,32 @@ async function searchCandidates(title) {
   return []
 }
 
+// Convert a picked image into a persistent data URL so it survives reloads.
+// (On web the raw picker uri is a temporary blob: link that dies on refresh.)
+async function toPersistentUri(asset) {
+  try {
+    if (asset.base64) {
+      const mime = asset.mimeType || 'image/jpeg'
+      return `data:${mime};base64,${asset.base64}`
+    }
+    const uri = asset.uri || ''
+    if (uri.startsWith('data:')) return uri
+    if (uri.startsWith('blob:') || uri.startsWith('http')) {
+      const res = await fetch(uri)
+      const blob = await res.blob()
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    }
+    return uri
+  } catch (e) {
+    return asset.uri
+  }
+}
+
 // ---- Cover art (used on home + popup + add) ------------------------------
 function Cover({ book, coverUrl, width, height, style, titleSize = 11.5, authorSize = 6, pad = [10, 9] }) {
   return (
@@ -203,6 +229,7 @@ export default function ShelfLifePhone() {
   const layouts = useRef({ books: {}, rows: {} })
   const uploadTarget = useRef('book')
   const suppressOpenRef = useRef(false)
+  const dragMovedRef = useRef(false)
 
   // ---- persistence -------------------------------------------------------
   useEffect(() => {
@@ -225,7 +252,9 @@ export default function ShelfLifePhone() {
   }, [books, loaded])
   useEffect(() => {
     if (!loaded) return
-    AsyncStorage.setItem(COVERS_KEY, JSON.stringify(covers)).catch(() => {})
+    AsyncStorage.setItem(COVERS_KEY, JSON.stringify(covers)).catch(() => {
+      showToast('Storage full — cover may not save')
+    })
   }, [covers, loaded])
 
   // ---- auto cover fetch --------------------------------------------------
@@ -369,10 +398,14 @@ export default function ShelfLifePhone() {
       if (!perm.granted) { showToast('Photo access needed'); return }
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions ? ImagePicker.MediaTypeOptions.Images : ['images'],
-        quality: 0.9,
+        quality: 0.7,
+        allowsEditing: true,
+        aspect: [COVER_W, COVER_H],
+        base64: true,
       })
       if (res.canceled || !res.assets || !res.assets[0]) return
-      applyCover(res.assets[0].uri, target)
+      const uri = await toPersistentUri(res.assets[0])
+      applyCover(uri, target)
     } catch (e) {
       showToast('Could not open library')
     }
@@ -493,6 +526,7 @@ export default function ShelfLifePhone() {
 
   const activateDrag = (book) => {
     dragActiveRef.current = true
+    dragMovedRef.current = false
     origCat.current = book.cat
     lastReorderKey.current = null
     ghostPos.setValue({ x: lastTouch.current.x, y: lastTouch.current.y })
@@ -525,6 +559,7 @@ export default function ShelfLifePhone() {
   }
 
   const handleDragMove = (pageX, pageY) => {
+    dragMovedRef.current = true
     ghostPos.setValue({ x: pageX, y: pageY })
     // find target shelf by row band
     let targetCat = null
@@ -665,7 +700,14 @@ export default function ShelfLifePhone() {
                       delayLongPress={300}
                       onLongPress={() => activateDrag(book)}
                       onPress={() => open(book.id)}
-                      onPressOut={() => { if (dragActiveRef.current) finishDragRef.current() }}
+                      onPressOut={() => {
+                        // only clean up a long-press that never moved; never cancel an active drag
+                        if (dragActiveRef.current) {
+                          setTimeout(() => {
+                            if (dragActiveRef.current && !dragMovedRef.current) finishDragRef.current()
+                          }, 120)
+                        }
+                      }}
                       style={({ pressed }) => [styles.coverShadow, { opacity: isDragging ? 0 : 1, transform: [{ scale: pressed && !isDragging ? 0.96 : 1 }] }]}
                     >
                       <Cover book={book} coverUrl={covers[book.id]} width={COVER_W} height={COVER_H} />
@@ -823,6 +865,7 @@ function DetailPopup(props) {
   )
 
   const scrollYRef = useRef(0)
+  const scrollRef = useRef(null)
   const swipe = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (e, g) => scrollYRef.current <= 0 && g.dy > 5 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
@@ -847,6 +890,13 @@ function DetailPopup(props) {
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
+  useEffect(() => {
+    if (confirmDelete) {
+      const t = setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollToEnd({ animated: true }) }, 60)
+      return () => clearTimeout(t)
+    }
+  }, [confirmDelete])
+
   return (
     <Modal visible={!!book} transparent animationType="none" onRequestClose={onClose}>
       <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
@@ -855,7 +905,7 @@ function DetailPopup(props) {
         <Pressable style={styles.card} onPress={() => {}}>
           {book && (
             <>
-              <View {...swipe.panHandlers}>
+              <View {...swipe.panHandlers} style={styles.cardInner}>
                 <View style={styles.cardHeader}>
                   <View style={styles.logoMark}>
                     <View style={styles.logoNotch} />
@@ -865,6 +915,8 @@ function DetailPopup(props) {
                   </Pressable>
                 </View>
                 <ScrollView
+                  ref={scrollRef}
+                  style={styles.cardScroll}
                   showsVerticalScrollIndicator={false}
                   onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y }}
                   scrollEventThrottle={16}
@@ -1120,7 +1172,7 @@ function AddModal(props) {
 const styles = StyleSheet.create({
   stage: { flex: 1, backgroundColor: C.cream },
   screen: { flex: 1 },
-  scrollContent: { paddingTop: 62, paddingLeft: 30, paddingRight: 16, paddingBottom: 200 },
+  scrollContent: { paddingTop: 30, paddingLeft: 30, paddingRight: 16, paddingBottom: 200 },
 
   header: { alignItems: 'center', marginBottom: 36 },
   wordmark: { fontFamily: F.serifSemi, fontSize: 42, letterSpacing: -1, color: C.ink, lineHeight: 44 },
@@ -1155,6 +1207,8 @@ const styles = StyleSheet.create({
   // popup
   backdrop: { flex: 1, backgroundColor: C.scrim, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22, paddingVertical: 20 },
   card: { width: 300, maxWidth: '100%', maxHeight: 670, backgroundColor: C.cream, borderRadius: 3, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 34 }, shadowOpacity: 0.5, shadowRadius: 80, elevation: 40 },
+  cardInner: { flexShrink: 1 },
+  cardScroll: { flexShrink: 1 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 15 },
   logoMark: { width: 15, height: 15, backgroundColor: C.ink },
   logoNotch: { position: 'absolute', top: 0, right: 0, width: 6, height: 6, backgroundColor: C.cream },
